@@ -1,26 +1,23 @@
-# Docker not supported for now
-
-FROM node:10
-
-WORKDIR /app
-COPY src src
-COPY files files
-COPY package.json package.json
-COPY server.js server.js
-RUN npm install
+FROM node:10-stretch-slim
 
 # [ClamAV] Start setup
 #
+COPY av-settings av-settings
 RUN apt-get update
 RUN apt-get install -y clamav
 RUN apt-get install -y clamav-daemon
-RUN cp ./src/av/clamav/config/freshclam.conf.sample /etc/clamav/freshclam.conf
-RUN cp ./src/av/clamav/config/clamd.conf.sample /etc/clamav/clamd.conf
+RUN cp ./av-settings/freshclam.conf.sample /etc/clamav/freshclam.conf
+RUN cp ./av-settings/clamd.conf.sample /etc/clamav/clamd.conf
 RUN freshclam
-# Not sure why, but calling `clamd` from here didn't start clam-daemon
-# That's why it should be called manually
-# RUN clamd
 #
 # [ClamAV] End setup
+
+WORKDIR /app
+COPY files files
+COPY src src
+COPY package.json package.json
+COPY package-lock.json package-lock.json
+COPY server.js server.js
+RUN npm install
 
 CMD ["node","server.js"]

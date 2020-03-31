@@ -4,7 +4,9 @@ const path = require('path');
 const Readable = require('stream').Readable;
 const Transform = require('stream').Transform;
 const config = require('../../config/av').clamav;
-const { spawn } = require('child_process');
+const util = require('util');
+const child_process = require('child_process');
+const exec = util.promisify(child_process.exec);
 
 class ClamAV {
   constructor (state) {
@@ -19,16 +21,16 @@ class ClamAV {
     }
 
     self.state = 'starting';
-    let clamd = spawn('clamd', []);
 
-    clamd.stdout.on('data', function () {
-      self.state = 'running';
-    });
+    exec('clamd')
+      .then(function (res) {
+        self.state = res.stderr.length > 0 ? 'down' : 'running';
+      })
+      .catch(function () {
+        self.state = 'down';
 
-    clamd.stderr.on('data', function (data) {
-      self.state = 'down';
-      throw new Error(`${data}`)
-    });
+        throw new Error('Failed to start `clamav-daemon`');
+      });
   }
 
   scanStream (readStream) {
