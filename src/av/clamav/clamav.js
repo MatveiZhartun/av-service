@@ -4,9 +4,7 @@ const path = require('path');
 const Readable = require('stream').Readable;
 const Transform = require('stream').Transform;
 const config = require('../../config/av').clamav;
-const util = require('util');
-const child_process = require('child_process');
-const exec = util.promisify(child_process.exec);
+const runClamd = require('./clamd-start');
 
 class ClamAV {
   constructor (state) {
@@ -15,21 +13,33 @@ class ClamAV {
 
   run () {
     let self = this;
+    let startClamd = runClamd;
 
-    if (this.state === 'running') {
+    if (self.state === 'running') {
       return;
     }
 
+    if (!startClamd) {
+      console.error('[clamav-daemon] No starter for current platform found, nut you still can run `clamd` manually.');
+      self.state = 'running';
+
+      return;
+    }
+
+    console.log('[clamav-daemon] Starting...');
     self.state = 'starting';
 
-    exec('clamd')
-      .then(function (res) {
-        self.state = res.stderr.length > 0 ? 'down' : 'running';
-      })
-      .catch(function () {
-        self.state = 'down';
+    startClamd()
+      .then(function () {
+        console.log('[clamav-daemon] Ready.');
 
-        throw new Error('Failed to start `clamav-daemon`');
+        self.state = 'running';
+      })
+      .catch(function (e) {
+        console.log('[clamav-daemon] Down.');
+        console.error(e);
+
+        self.state = 'down';
       });
   }
 
