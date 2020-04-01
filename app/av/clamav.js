@@ -1,10 +1,8 @@
 const net = require('net');
-const fs = require('fs');
-const path = require('path');
 const Readable = require('stream').Readable;
 const Transform = require('stream').Transform;
-const config = require('../../config/av').clamav;
-const runClamd = require('./clamd-start');
+const config = require('./config/clamav-config');
+const exec = require('../utils/exec');
 
 class ClamAV {
   constructor (state) {
@@ -13,33 +11,32 @@ class ClamAV {
 
   run () {
     let self = this;
-    let startClamd = runClamd;
 
     if (self.state === 'running') {
       return;
     }
 
-    if (!startClamd) {
-      console.error('[clamav-daemon] No starter for current platform found, nut you still can run `clamd` manually.');
+    if (!exec) {
+      console.error('[clamav-daemon] No executor for current platform found, nut you still can run `clamd` manually.');
       self.state = 'running';
 
       return;
     }
 
-    console.log('[clamav-daemon] Starting...');
     self.state = 'starting';
+    console.log('[clamav-daemon] Starting...');
 
-    startClamd()
-      .then(function () {
-        console.log('[clamav-daemon] Ready.');
-
+    exec('clamd')
+      .then(() => {
         self.state = 'running';
+
+        console.log('[clamav-daemon] Ready.');
       })
-      .catch(function (e) {
+      .catch((e) => {
+        self.state = 'down';
+
         console.log('[clamav-daemon] Down.');
         console.error(e);
-
-        self.state = 'down';
       });
   }
 
@@ -47,19 +44,17 @@ class ClamAV {
     let state = this.state;
 
     if (state !== 'running') {
-      return new Promise ( function (resolve, reject) {
-        return reject(`'clamav-daemon' is ${state}.`);
-      });
+      return new Promise((resolve, reject) => reject(`'clamav-daemon' is ${state}.`));
     }
 
-    return new Promise(function (resolve, reject) {
+    return new Promise((resolve, reject) => {
       let socket = null;
       let connectAttemptTimer = null;
       let replies = []
       let readFinished = false;
 
       try {
-        socket = net.createConnection({ host: config.host, port: config.port }, function () {
+        socket = net.createConnection({ host: config.host, port: config.port }, () => {
           socket.write('zINSTREAM\0');
 
           readStream.pipe(chunkTransform()).pipe(socket);
@@ -74,7 +69,7 @@ class ClamAV {
       }
 
       socket.setTimeout(config.connectionTimeout);
-      socket.on('data', function (chunk) {
+      socket.on('data', (chunk) => {
         clearTimeout(connectAttemptTimer);
 
         if (!readStream.isPaused()) {
@@ -83,7 +78,7 @@ class ClamAV {
 
         replies.push(chunk);
       });
-      socket.on('end', function () {
+      socket.on('end', () => {
         clearTimeout(connectAttemptTimer);
         let reply = Buffer.concat(replies).toString('utf8') || '';
 
@@ -99,7 +94,7 @@ class ClamAV {
       })
       socket.on('error', reject);
 
-      connectAttemptTimer = setTimeout(function () {
+      connectAttemptTimer = setTimeout(() => {
         socket.destroy(new Error('Timeout connecting to server'));
       }, config.connectionTimeout)
     })
@@ -110,9 +105,7 @@ class ClamAV {
     let start = 0;
 
     if (state !== 'running') {
-      return new Promise ( function (resolve, reject) {
-        return reject(`'clamav-daemon' is ${state}.`);
-      });
+      return new Promise ((resolve, reject) => reject(`'clamav-daemon' is ${state}.`));
     }
 
     return this.scanStream(
@@ -132,24 +125,6 @@ class ClamAV {
     );
   }
 
-  scanFile (filePath) {
-    let state = this.state;
-
-    if (state !== 'running') {
-      return new Promise ( function (resolve, reject) {
-        return reject(`'clamav-daemon' is ${state}.`);
-      });
-    }
-
-    return this.scanStream(
-      fs.createReadStream(path.normalize(filePath), { highWaterMark: config.bufferChunkSize }),
-      config.connectionTimeout
-    );
-  }
-
-  version () {
-    return _command('zVERSION\0').then(function (res) { return res.toString(); });
-  }
 }
 
 function chunkTransform () {
@@ -161,7 +136,6 @@ function chunkTransform () {
       this.push(chunk);
       callback();
     },
-
     flush (callback) {
       const zore = Buffer.alloc(4);
       zore.writeUInt32BE(0, 0);
@@ -169,29 +143,6 @@ function chunkTransform () {
       callback();
     }
   })
-}
-
-function _command (command) {
-  return new Promise(function (resolve, reject) {
-    let replies = [];
-    let client = null;
-
-    try {
-      client = net.createConnection(
-        { host: config.host, port: config.port },
-        function () { client.write(command) }
-      );
-    }
-    catch (e) {
-      throw e;
-    }
-
-    client.setTimeout(config.connectionTimeout);
-
-    client.on('data', function (chunk) { replies.push(chunk) });
-    client.on('end', function () { resolve(Buffer.concat(replies)) });
-    client.on('error', reject);
-  });
 }
 
 module.exports = ClamAV;

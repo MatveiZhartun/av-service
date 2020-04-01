@@ -11,6 +11,6 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(fileUpload());
 
-require('./src/routes/index')(app);
+require('./app/routes')(app);
 
 app.listen(3000);
